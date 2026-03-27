@@ -22,51 +22,88 @@
     font-size: 18px;
   }
   .small { font-size: 14px; color: #444; }
+  .hidden { display: none; }
+  #fullScreenView {
+    position: fixed;
+    inset: 0;
+    background: #fff;
+    z-index: 9999;
+    padding: 16px;
+    box-sizing: border-box;
+    overflow: auto;
+  }
+  #fullScreenOutput {
+    white-space: pre-wrap;
+    font-size: 28px;
+    line-height: 1.5;
+    border: none;
+    padding: 0;
+    margin-top: 16px;
+    min-height: 0;
+  }
+  .topbar {
+    display: flex;
+    justify-content: flex-end;
+  }
+  .back-btn {
+    font-size: 18px;
+    padding: 10px 14px;
+  }
 </style>
 </head>
 <body>
 
-<h2>Kettlebell HIIT Selector</h2>
+<div id="selectorView">
+  <h2>Kettlebell HIIT Selector</h2>
 
-<div class="row">
-  <label for="movement">Movement</label>
-  <select id="movement">
-    <option value="hinge">Hinge only</option>
-    <option value="squat">Squat only</option>
-    <option value="combo">Combination only</option>
-    <option value="mixed">Mixed (hinge + squat alternating)</option>
-  </select>
+  <div class="row">
+    <label for="movement">Movement</label>
+    <select id="movement">
+      <option value="hinge">Hinge only</option>
+      <option value="squat">Squat only</option>
+      <option value="combo">Combination only</option>
+      <option value="mixed">Mixed (hinge + squat alternating)</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <label for="load">Load</label>
+    <select id="load">
+      <option value="single">Single</option>
+      <option value="double">Double</option>
+      <option value="mixed">Mixed</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <label for="comboMode">Combination in mixed lists</label>
+    <select id="comboMode">
+      <option value="include">Include</option>
+      <option value="exclude">Exclude</option>
+    </select>
+    <div class="small">Ignored for Hinge only, Squat only, and Combination only.</div>
+  </div>
+
+  <div class="row">
+    <label for="count">Number of exercises</label>
+    <input type="number" id="count" value="6" min="1" step="1">
+  </div>
+
+  <div class="buttons">
+    <button id="generateBtn">Generate</button>
+    <button id="regenerateBtn">Regenerate</button>
+    <button id="fullScreenBtn">Full Screen List</button>
+  </div>
+
+  <pre id="output">Loading exercises...</pre>
 </div>
 
-<div class="row">
-  <label for="load">Load</label>
-  <select id="load">
-    <option value="single">Single</option>
-    <option value="double">Double</option>
-    <option value="mixed">Mixed</option>
-  </select>
+<div id="fullScreenView" class="hidden">
+  <div class="topbar">
+    <button id="backBtn" class="back-btn">Back</button>
+  </div>
+  <pre id="fullScreenOutput"></pre>
 </div>
-
-<div class="row">
-  <label for="comboMode">Combination in mixed lists</label>
-  <select id="comboMode">
-    <option value="include">Include</option>
-    <option value="exclude">Exclude</option>
-  </select>
-  <div class="small">Ignored for Hinge only, Squat only, and Combination only.</div>
-</div>
-
-<div class="row">
-  <label for="count">Number of exercises</label>
-  <input type="number" id="count" value="6" min="1" step="1">
-</div>
-
-<div class="buttons">
-  <button id="generateBtn">Generate</button>
-  <button id="regenerateBtn">Regenerate</button>
-</div>
-
-<pre id="output">Loading exercises...</pre>
 
 <script>
 let exerciseData = {
@@ -79,9 +116,14 @@ let exerciseData = {
 };
 
 const outputEl = document.getElementById('output');
+const fullScreenOutputEl = document.getElementById('fullScreenOutput');
+const selectorView = document.getElementById('selectorView');
+const fullScreenView = document.getElementById('fullScreenView');
 
 document.getElementById('generateBtn').addEventListener('click', generate);
 document.getElementById('regenerateBtn').addEventListener('click', generate);
+document.getElementById('fullScreenBtn').addEventListener('click', openFullScreenView);
+document.getElementById('backBtn').addEventListener('click', closeFullScreenView);
 
 fetch('exercises.txt')
   .then(response => {
@@ -91,6 +133,7 @@ fetch('exercises.txt')
   .then(text => {
     exerciseData = parseExercises(text);
     outputEl.textContent = '';
+    fullScreenOutputEl.textContent = '';
   })
   .catch(err => {
     outputEl.textContent = 'Could not load exercises.txt';
@@ -152,7 +195,9 @@ function shuffle(array) {
   const arr = array.slice();
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    const temp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = temp;
   }
   return arr;
 }
@@ -202,7 +247,10 @@ function getPools(load) {
 }
 
 function generateMixedList(count, load, comboMode) {
-  const { hinge, squat, combo } = getPools(load);
+  const pools = getPools(load);
+  const hinge = pools.hinge;
+  const squat = pools.squat;
+  const combo = pools.combo;
 
   const hingeNeeded = Math.ceil(count / 2);
   const squatSlotNeeded = Math.floor(count / 2);
@@ -215,17 +263,11 @@ function generateMixedList(count, load, comboMode) {
   } else {
     const uniqueSquats = [...new Set(squat)];
     const comboFamilyCount = buildComboFamilyMap(combo).size;
-
-    const targetComboCount = Math.min(
-      comboFamilyCount,
-      Math.floor(squatSlotNeeded * 0.25)
-    );
-
-    const actualComboCount = targetComboCount > 0 ? targetComboCount : 0;
-    const squatCount = Math.max(0, squatSlotNeeded - actualComboCount);
+    const targetComboCount = Math.min(comboFamilyCount, Math.floor(squatSlotNeeded * 0.25));
+    const squatCount = Math.max(0, squatSlotNeeded - targetComboCount);
 
     let chosenSquats = sampleUniqueStrings(uniqueSquats, squatCount);
-    let chosenCombos = sampleComboVariants(combo, actualComboCount);
+    let chosenCombos = sampleComboVariants(combo, targetComboCount);
 
     if (chosenSquats.length + chosenCombos.length < squatSlotNeeded) {
       const remainingSquats = uniqueSquats.filter(x => !chosenSquats.includes(x));
@@ -251,12 +293,19 @@ function generateMixedList(count, load, comboMode) {
   return result;
 }
 
-function generate() {
-  if (!exerciseData) {
-    outputEl.textContent = 'Could not load exercises.txt';
-    return;
+function buildOutputText(result, count) {
+  const lines = [];
+  if (result.length < count) {
+    lines.push('Only ' + result.length + ' available');
+    lines.push('');
   }
+  result.forEach((exercise, index) => {
+    lines.push((index + 1) + '. ' + exercise);
+  });
+  return lines.join('\n');
+}
 
+function generate() {
   const movement = document.getElementById('movement').value;
   const load = document.getElementById('load').value;
   const comboMode = document.getElementById('comboMode').value;
@@ -264,41 +313,45 @@ function generate() {
 
   if (!Number.isInteger(count) || count < 1) {
     outputEl.textContent = 'Enter a valid number';
+    fullScreenOutputEl.textContent = 'Enter a valid number';
     return;
   }
 
   let result = [];
 
   if (movement === 'hinge') {
-    const { hinge } = getPools(load);
-    result = sampleUniqueStrings(hinge, count);
+    const pools = getPools(load);
+    result = sampleUniqueStrings(pools.hinge, count);
   }
 
   if (movement === 'squat') {
-    const { squat } = getPools(load);
-    result = sampleUniqueStrings(squat, count);
+    const pools = getPools(load);
+    result = sampleUniqueStrings(pools.squat, count);
   }
 
   if (movement === 'combo') {
-    const { combo } = getPools(load);
-    result = sampleComboVariants(combo, count);
+    const pools = getPools(load);
+    result = sampleComboVariants(pools.combo, count);
   }
 
   if (movement === 'mixed') {
     result = generateMixedList(count, load, comboMode);
   }
 
-  const lines = [];
-  if (result.length < count) {
-    lines.push(`Only ${result.length} available`);
-    lines.push('');
-  }
+  const text = buildOutputText(result, count);
+  outputEl.textContent = text;
+  fullScreenOutputEl.textContent = text;
+}
 
-  result.forEach((exercise, index) => {
-    lines.push(`${index + 1}. ${exercise}`);
-  });
+function openFullScreenView() {
+  fullScreenOutputEl.textContent = outputEl.textContent;
+  selectorView.classList.add('hidden');
+  fullScreenView.classList.remove('hidden');
+}
 
-  outputEl.textContent = lines.join('\n');
+function closeFullScreenView() {
+  fullScreenView.classList.add('hidden');
+  selectorView.classList.remove('hidden');
 }
 </script>
 
